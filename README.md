@@ -159,3 +159,35 @@ Lutris 里可以在游戏条目的环境变量中加 `DLSSNR_ALLOW: "1"`。
 | **反作弊检测** | 目录含 `EasyAntiCheat` / `BattlEye` / `BEService` / `Warden` / `Vanguard` / `Ricochet` / `FACEIT` | 跳过 |
 
 这样 Epic/EA/Ubisoft 的**单机游戏**（Alan Wake 2、Control、Death Stranding 等）不会被误杀，而 Fortnite/Rocket League 这类带 EAC/BattlEye 的仍会被拦。
+
+---
+
+## v0.3.0：启动器自动识别（Epic / GOG / Ubisoft / EA）
+
+当 Proton 启动的是**启动器**（`EpicGamesLauncher.exe`、`GalaxyClient.exe`、`UbisoftConnect.exe`、`EADesktop.exe`）而不是游戏时：
+
+1. 向上 4 层探测启动器 exe，识别平台
+2. 从平台清单里读出**已安装游戏目录**（Epic 读 `ProgramData/Epic/EpicGamesLauncher/Data/Manifests/*.item` 的 `InstallLocation`）
+3. 对每个游戏：判位数/路由/反作弊，缺文件就装
+4. 设环境变量（游戏是启动器子进程，会继承）
+
+默认策略：
+
+| 行为 | 条件 |
+|---|---|
+| 只自动装 **带 DLSS/FSR/XeSS** 的游戏（`optiscaler` 路由） | 默认 |
+| 也装上纯后处理（`reshade-feeder`）的游戏 | `DLSSNR_LAUNCHER_ALL=1` |
+| Battle.net 启动器 | 硬跳过（策略） |
+| 带 `EasyAntiCheat`/`BattlEye` 的游戏 | 跳过 |
+
+实测（本机 Epic 前缀，dry-run）：
+
+```
+启动器 epic → 安装 DEATHLOOP（optiscaler）
+跳过 Dying Light（无 DLSS/FSR，reshade 路线需 DLSSNR_LAUNCHER_ALL=1）
+...
+启动器模式就绪，1 个游戏
+VK_ADD_LAYER_PATH=.../DEATHLOOP/dlssnr-amd/control/layer
+```
+
+限制：`VK_ADD_LAYER_PATH` 是单值，多个 `optiscaler` 游戏时只指向第一个（NR 本体仍可跑，NR Control 菜单指向第一个）；多游戏建议用 `reshade-feeder`。

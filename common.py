@@ -191,6 +191,139 @@ def warned_by_path(game_dir):
     return next((p for p in WARN_PATHS if p in low), None)
 
 
+
+# ---------------------------------------------------------------- launcher mode
+LAUNCHER_EXES = {
+    "epicgameslauncher.exe": "epic",
+    "battle.net.exe": "battlenet",
+    "galaxyclient.exe": "gog",
+    "ubisoftconnect.exe": "ubisoft",
+    "upc.exe": "ubisoft",
+    "eadesktop.exe": "ea",
+}
+SKIP_DIR_NAMES = {"launcher", "directxredist", "directx", "redist", "common files", "support"}
+
+
+def _listdir_lower(d):
+    try:
+        return {n.lower(): n for n in os.listdir(d)}
+    except OSError:
+        return {}
+
+
+def detect_launcher(game_dir):
+    p = os.path.abspath(game_dir)
+    for _ in range(4):
+        names = _listdir_lower(p)
+        for exe, kind in LAUNCHER_EXES.items():
+            if exe in names:
+                return kind, p
+        parent = os.path.dirname(p)
+        if parent == p:
+            break
+        p = parent
+    return None, None
+
+
+def find_drive_c(path):
+    p = os.path.abspath(path)
+    while True:
+        if os.path.basename(p).lower() == "drive_c":
+            return p
+        parent = os.path.dirname(p)
+        if parent == p:
+            return None
+        p = parent
+
+
+def _win_to_linux(drive_c, winpath):
+    m = re.match(r"^([A-Za-z]):[\\/](.*)$", winpath or "")
+    if not m or m.group(1).upper() != "C":
+        return None
+    return os.path.join(drive_c, m.group(2).replace("\\", "/"))
+
+
+def epic_games(drive_c):
+    """从 Epic 的 manifests 读出已安装游戏目录。"""
+    out = []
+    mani = os.path.join(drive_c, "ProgramData/Epic/EpicGamesLauncher/Data/Manifests")
+    if not os.path.isdir(mani):
+        return out
+    for f in os.listdir(mani):
+        if not f.endswith(".item"):
+            continue
+        try:
+            d = json.load(open(os.path.join(mani, f), encoding="utf-8"))
+        except Exception:
+            continue
+        loc = _win_to_linux(drive_c, d.get("InstallLocation", ""))
+        name = d.get("DisplayName") or f
+        if loc and os.path.isdir(loc):
+            out.append((name, loc))
+    return out
+
+
+def launcher_games(kind, drive_c):
+    if kind == "epic":
+        return epic_games(drive_c)
+    # battle.net / ubisoft / ea：暂不自动扫描（battlenet 本身被硬拦）
+    return []
+
+
+def ensure_launcher(util, appid, kind, root):
+    drive_c = find_drive_c(root)
+    if not drive_c:
+        log(f"{appid}: 启动器模式，但找不到 drive_c（{root}）")
+        return
+    games = launcher_games(kind, drive_c)
+    if not games:
+        log(f"{appid}: 启动器模式 {kind}，没找到可扫描的游戏清单")
+        return
+    dry = os.environ.get("DLSSNR_DRY", "") in ("1", "true", "yes")
+    allow = os.environ.get("DLSSNR_ALLOW", "") in ("1", "true", "yes")
+    all_games = os.environ.get("DLSSNR_LAUNCHER_ALL", "") in ("1", "true", "yes")
+    done, opti = [], []
+    for name, gdir in games:
+        if os.path.basename(gdir).lower() in SKIP_DIR_NAMES:
+            continue
+        ac = has_anticheat(gdir)
+        if ac and not allow:
+            log(f"{appid}: 跳过 {name}（反作弊痕迹 '{ac}'）")
+            continue
+        st = detect(gdir, "L:" + gdir)
+        if not st:
+            continue
+        if not st["route"].startswith("optiscaler") and not all_games:
+            log(f"{appid}: 跳过 {name}（无 DLSS/FSR，reshade 路线需 DLSSNR_LAUNCHER_ALL=1）")
+            continue
+        if not os.path.exists(os.path.join(gdir, MARKER)):
+            log(f"{appid}: 启动器 {kind} → 安装 {name}（{st['route']}）")
+            if not dry and not install(st):
+                continue
+        else:
+            log(f"{appid}: 启动器 {kind} → {name} 已安装（{st['route']}）")
+        done.append((name, st))
+        if st["route"].startswith("optiscaler"):
+            opti.append((name, st))
+
+    if not done:
+        return
+    if opti:
+        # VK 层是单值：取第一个 optiscaler 游戏；其余游戏 NR 仍可跑，只是 NR Control 菜单指向第一个
+        name, st = opti[0]
+        layer = os.path.join(os.path.dirname(st["exe"]), "dlssnr-amd/control/layer")
+        util.set_environment("VK_ADD_LAYER_PATH", layer)
+        util.set_environment("VK_INSTANCE_LAYERS", "VK_LAYER_DLSSNR_control")
+        util.winedll_override("dxgi", getattr(util.OverrideOrder, "NATIVE_BUILTIN", "n,b"))
+        if len(opti) > 1:
+            log(f"{appid}: 注意：{len(opti)} 个 optiscaler 游戏，VK 层只指向 {name}")
+    else:
+        order = getattr(util.OverrideOrder, "NATIVE_BUILTIN", "n,b")
+        util.winedll_override("winevulkan", order)
+        util.winedll_override("vulkan-1", order)
+    log(f"{appid}: 启动器模式就绪，{len(done)} 个游戏")
+
+
 def ensure(util, appid):
     """default.py 的入口：幂等、异常安全。"""
     try:
@@ -203,6 +336,13 @@ def ensure(util, appid):
         if not game or not os.path.isdir(game):
             return
         allow = os.environ.get("DLSSNR_ALLOW", "") in ("1", "true", "yes")
+        lkind, lroot = detect_launcher(game)
+        if lkind:
+            if lkind == "battlenet" and not allow:
+                log(f"{appid}: 启动器 Battle.net，按策略跳过")
+                return
+            ensure_launcher(util, appid, lkind, lroot)
+            return
         hit = blocked_by_path(game)
         if hit and not allow:
             log(f"{appid}: 跳过（路径含 '{hit}'，在线/反作弊平台）")
