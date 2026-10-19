@@ -90,3 +90,36 @@ bash scripts/install.sh --uninstall
 ## 设计文档
 
 见 [docs/DESIGN.md](docs/DESIGN.md)（路由、钩子、边界、后续把逻辑做进 Proton fork 的方案）。
+
+---
+
+## Lutris 支持
+
+| 用法 | 是否自动 | 说明 |
+|---|---|---|
+| Lutris → **Steam** → 游戏（本机就是这种） | ✅ 完全自动 | 实际是 Steam 的 GE-Proton 在跑，protonfixes 照常触发 |
+| Lutris 直接用 **Proton runner**（GE-Proton） | ⚠️ 通常可以 | Proton 会跑 protonfixes；取决于 Lutris 是否传 `STEAM_COMPAT_INSTALL_PATH`，可用 `~/.config/dlssnr-auto/auto.log` 验证 |
+| Lutris 用 **Wine runner**（wine-ge / lutris-GE） | ❌ 无 protonfixes | 用下面的 `--lutris` 写环境变量；文件安装仍用 `install.sh` |
+
+Wine runner 场景两条命令：
+
+```bash
+# 1) 只装文件（不碰 Steam 配置）
+python3 dlssnr_auto.py --game-dir "/games/xxx" --route reshade-feeder-dx9 --skip-steam-config
+
+# 2) 把环境变量写进 Lutris 游戏 yml（自动匹配，或 --lutris-yml 指定）
+python3 dlssnr_auto.py --game-dir "/games/xxx" --lutris
+```
+
+写入内容（`system.env`，自动备份 `.bak-dlssnr`）：
+
+```yaml
+system:
+  env:
+    WINEDLLOVERRIDES: dxgi=n,b                       # optiscaler 路线
+    VK_ADD_LAYER_PATH: /games/xxx/dlssnr-amd/control/layer
+    VK_INSTANCE_LAYERS: VK_LAYER_DLSSNR_control
+```
+
+`reshade-feeder*` 路线则只写 `WINEDLLOVERRIDES: winevulkan=n,b;vulkan-1=n,b`。
+需要 `python3-yaml`（Lutris 自带依赖通常已装）。

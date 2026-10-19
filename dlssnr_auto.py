@@ -16,6 +16,10 @@
 只依赖 Python 标准库。
 """
 import argparse, json, os, re, shutil, struct, subprocess, sys, time
+try:
+    import yaml
+except ImportError:
+    yaml = None
 
 HOME = os.path.expanduser("~")
 STEAM = os.environ.get("DLSSNR_STEAM_ROOT", os.path.join(HOME, ".steam/debian-installation"))
@@ -156,6 +160,62 @@ def vdf_set_launch_options(lc_path, appid, value):
     return True
 
 
+
+def _route_env(route, exe):
+    if route.startswith("optiscaler"):
+        layer = os.path.join(os.path.dirname(exe), "dlssnr-amd/control/layer")
+        return {"WINEDLLOVERRIDES": "dxgi=n,b",
+                "VK_ADD_LAYER_PATH": layer,
+                "VK_INSTANCE_LAYERS": "VK_LAYER_DLSSNR_control"}
+    return {"WINEDLLOVERRIDES": "winevulkan=n,b;vulkan-1=n,b"}
+
+
+def find_lutris_yml(game_dir=None, exe=None, explicit=None):
+    if explicit:
+        return explicit if os.path.exists(explicit) else None
+    d = os.path.join(HOME, ".config/lutris/games")
+    if not os.path.isdir(d):
+        return None
+    best = None
+    for f in sorted(os.listdir(d)):
+        if not f.endswith((".yml", ".yaml")):
+            continue
+        p = os.path.join(d, f)
+        try:
+            data = yaml.safe_load(open(p, encoding="utf-8")) or {}
+        except Exception:
+            continue
+        e = str((data.get("game") or {}).get("exe") or "")
+        if exe and e and os.path.abspath(e) == os.path.abspath(exe):
+            return p
+        if game_dir and e and e.startswith(game_dir):
+            best = p
+    return best
+
+
+def lutris_set_env(yml_path, env):
+    """把环境变量写进 Lutris 游戏 yml 的 system.env（自动备份）。"""
+    data = yaml.safe_load(open(yml_path, encoding="utf-8")) or {}
+    sysd = data.get("system") or {}
+    envd = sysd.get("env") or {}
+    cur = str(envd.get("WINEDLLOVERRIDES") or "")
+    for k, v in env.items():
+        if k == "WINEDLLOVERRIDES" and cur:
+            parts = [x for x in cur.split(";") if x]
+            have = {x.split("=")[0].strip().lower() for x in parts}
+            for item in v.split(";"):
+                if item.split("=")[0].strip().lower() not in have:
+                    parts.append(item)
+            envd[k] = ";".join(parts)
+        else:
+            envd[k] = v
+    sysd["env"] = envd
+    data["system"] = sysd
+    shutil.copy2(yml_path, yml_path + ".bak-dlssnr")
+    with open(yml_path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--appid")
@@ -167,6 +227,8 @@ def main():
     ap.add_argument("--localfix", action="store_true", help="生成 protonfixes localfix 自愈脚本")
     ap.add_argument("--skip-steam-config", action="store_true")
     ap.add_argument("--steam-restart", action="store_true", help="自动关闭并重启 Steam 以写配置")
+    ap.add_argument("--lutris", action="store_true", help="改为写入 Lutris 游戏 yml（wine runner 场景）")
+    ap.add_argument("--lutris-yml", help="显式指定 Lutris 游戏 yml 路径")
     args = ap.parse_args()
 
     if args.appid:
@@ -227,6 +289,17 @@ def main():
 
     if args.localfix and args.appid:
         write_localfix(args.appid, state)
+
+    if args.lutris or args.lutris_yml:
+        if yaml is None:
+            raise SystemExit("需要 PyYAML：sudo apt install python3-yaml")
+        yml = find_lutris_yml(game_dir, exe, args.lutris_yml)
+        if not yml:
+            raise SystemExit("找不到对应的 Lutris 游戏 yml，用 --lutris-yml 指定")
+        lutris_set_env(yml, _route_env(route, exe))
+        log(f"Lutris 配置已写入: {yml}")
+        log(f"环境: {_route_env(route, exe)}")
+        return 0
 
     if not args.skip_steam_config and args.appid:
         if steam_running():
