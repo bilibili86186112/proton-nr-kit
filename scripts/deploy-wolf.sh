@@ -27,6 +27,16 @@ else
   echo "   !! 找不到 $SRC（GE-Proton 装了吗？）"
 fi
 
+say "2b/6 清理 Steam Linux Runtime 残留（root 属主的 var/tmp-*）"
+RT="$STEAM/steamapps/common/SteamLinuxRuntime_4"
+if [[ -d "$RT/var" ]]; then
+  for d in "$RT"/var/tmp-*; do
+    [[ -d "$d" ]] || continue
+    if [[ "$(stat -c %u "$d")" == "0" ]]; then rm -rf "$d" && echo "   removed $d"; fi
+  done
+  echo "   已清理"
+fi
+
 say "3/6 Mesa 扩展检查"
 if command -v vulkaninfo >/dev/null 2>&1; then
   ext=$(vulkaninfo 2>/dev/null | grep -cE "VK_KHR_cooperative_matrix|VK_EXT_shader_float8" || true)
