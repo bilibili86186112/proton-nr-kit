@@ -191,3 +191,20 @@ VK_ADD_LAYER_PATH=.../DEATHLOOP/dlssnr-amd/control/layer
 ```
 
 限制：`VK_ADD_LAYER_PATH` 是单值，多个 `optiscaler` 游戏时只指向第一个（NR 本体仍可跑，NR Control 菜单指向第一个）；多游戏建议用 `reshade-feeder`。
+
+---
+
+## 模型版本（2026-10-19 更新）
+
+DLSSNR-AMD 支持两个 NR 模型，ini 里 `[Network] Model` 切换（重启生效）：
+
+| 值 | 模型 | 权重文件 | 速度（RX 9070 XT, 1080p） |
+|---|---|---|---|
+| `small` | 310.9.16 新模型（默认） | `dlssnr-small.bin`（109 MB） | 3.27 ms |
+| `original` | 310.8.0 旧模型 | `dlssnr.bin`（141 MB） | 5.60 ms |
+
+`--new-model` / `--old-model` 只影响安装后 ini 的默认值；两个模型都会装上（前提是包里有或缺 `--dll` 指向 310.9.16）。
+
+**注意**：DLSSNR-AMD 的安装器按 **DLL 的 SHA256 白名单**（310.8.0 / 310.9.16 各一个）判版本。社区重打包的 310.9.16 变体（PE 哈希不同）会被拒；但用 `model-tools/extract_model.sh` 的权重条目哈希（599 / 255 条）可以独立验证权重是否为正品。
+
+DLL 获取：本项目不提供。可从自己拥有的 DLSS 5 游戏，或社区镜像（如 RHI、`thx114/HoYoShadeHub-DLSSNR-Runtimes` 的 310.9.16 资产）取得，哈希自担。
