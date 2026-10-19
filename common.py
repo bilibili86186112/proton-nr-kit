@@ -26,7 +26,15 @@ UPSCALER_DLLS = {"nvngx_dlss.dll", "amd_fidelityfx_upscaler_dx12.dll", "libxess.
 # 不处理的 appid：Steam Linux Runtime / Proton 本体 / 反作弊运行时等
 BLACKLIST = {"228980", "1070560", "1391110", "1628350", "4183110", "1493710", "2180100",
              "1826330", "1161040", "1054830", "1580130", "1887720", "2348590", "2805730",
-             "3658110", "4628710", "961940"}
+             "3658110", "4628710", "961940",
+             # 在线/反作弊游戏：Diablo IV / Overwatch 2 等
+             "2344520", "2357570", "2073850", "1203220"}
+# 路径关键词（Lutris/Battle.net 等没有 appid 的场景）
+BLACKLIST_PATHS = ("battlenet", "battle.net", "blizzard", "epic games", "ea games", "ubisoft connect",
+                   "riot client", "steamapps/common/steamworks", "easyanticheat", "battleye")
+# 目录里出现这些名字 → 视为反作弊，默认跳过（DLSSNR_ALLOW=1 可强制）
+ANTICHEAT_MARKERS = ("easyanticheat", "battleye", "beservice", "warden", "anticheat",
+                     "vanguard", "ricochet", "faceit")
 
 
 def log(msg):
@@ -156,6 +164,26 @@ def set_env(util, st):
         util.winedll_override("vulkan-1", order)
 
 
+def has_anticheat(game_dir):
+    try:
+        for root, dirs, files in os.walk(game_dir):
+            if root[len(game_dir):].count(os.sep) > 3:
+                dirs[:] = []
+                continue
+            for name in list(dirs) + list(files):
+                low = name.lower()
+                if any(m in low for m in ANTICHEAT_MARKERS):
+                    return name
+    except OSError:
+        pass
+    return None
+
+
+def blocked_by_path(game_dir):
+    low = game_dir.lower().replace("\\", "/")
+    return next((p for p in BLACKLIST_PATHS if p in low), None)
+
+
 def ensure(util, appid):
     """default.py 的入口：幂等、异常安全。"""
     try:
@@ -166,6 +194,15 @@ def ensure(util, appid):
             return
         game = util.get_game_install_path()
         if not game or not os.path.isdir(game):
+            return
+        allow = os.environ.get("DLSSNR_ALLOW", "") in ("1", "true", "yes")
+        hit = blocked_by_path(game)
+        if hit and not allow:
+            log(f"{appid}: 跳过（路径含 '{hit}'，在线/启动器前缀）")
+            return
+        ac = has_anticheat(game)
+        if ac and not allow:
+            log(f"{appid}: 跳过（检测到反作弊痕迹 '{ac}'）")
             return
         st = detect(game, appid)
         if not st:

@@ -123,3 +123,29 @@ system:
 
 `reshade-feeder*` 路线则只写 `WINEDLLOVERRIDES: winevulkan=n,b;vulkan-1=n,b`。
 需要 `python3-yaml`（Lutris 自带依赖通常已装）。
+
+---
+
+## 安全开关（2026-10-19 新增）
+
+自动注入会把 DLL 塞进游戏目录，**在线游戏/反作弊游戏必须排除**。`common.py` 现在三层保护：
+
+| 层 | 规则 | 触发结果 |
+|---|---|---|
+| appid 黑名单 | Steam Linux Runtime / Proton 本体 / Diablo IV(2344520) / Overwatch 2(2357570) 等 | 跳过 |
+| 路径关键词 | 路径含 `battlenet`、`blizzard`、`epic games`、`ubisoft connect`、`riot client`、`easyanticheat`、`battleye` 等 | 跳过并记日志 |
+| 反作弊文件 | 目录内出现 `EasyAntiCheat` / `BattlEye` / `BEService` / `Warden` / `Vanguard` / `Ricochet` / `FACEIT` | 跳过并记日志 |
+
+跳过时会写进 `~/.config/dlssnr-auto/auto.log`，例如：
+
+```
+[2026-10-19 11:20:01] 1234: 跳过（路径含 'battlenet'，在线/启动器前缀）
+```
+
+确实要强制（例如某个单机游戏目录恰好带 `anticheat` 字样）：
+
+```bash
+DLSSNR_ALLOW=1 <启动>
+```
+
+Lutris 里可以在游戏条目的环境变量中加 `DLSSNR_ALLOW: "1"`。
