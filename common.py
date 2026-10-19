@@ -29,9 +29,11 @@ BLACKLIST = {"228980", "1070560", "1391110", "1628350", "4183110", "1493710", "2
              "3658110", "4628710", "961940",
              # 在线/反作弊游戏：Diablo IV / Overwatch 2 等
              "2344520", "2357570", "2073850", "1203220"}
-# 路径关键词（Lutris/Battle.net 等没有 appid 的场景）
-BLACKLIST_PATHS = ("battlenet", "battle.net", "blizzard", "epic games", "ea games", "ubisoft connect",
-                   "riot client", "steamapps/common/steamworks", "easyanticheat", "battleye")
+# 硬拦截路径：这些平台的游戏全部在线 + 强反作弊（Warden/Vanguard），不要注入
+HARD_BLOCK_PATHS = ("battlenet", "battle.net", "blizzard", "riot client", "vanguard",
+                    "steamapps/common/steamworks")
+# 软警告路径：启动器前缀里也有单机游戏，只警告不拦（是否安全交给反作弊检测）
+WARN_PATHS = ("epic games", "ea games", "ubisoft connect", "gog galaxy")
 # 目录里出现这些名字 → 视为反作弊，默认跳过（DLSSNR_ALLOW=1 可强制）
 ANTICHEAT_MARKERS = ("easyanticheat", "battleye", "beservice", "warden", "anticheat",
                      "vanguard", "ricochet", "faceit")
@@ -181,7 +183,12 @@ def has_anticheat(game_dir):
 
 def blocked_by_path(game_dir):
     low = game_dir.lower().replace("\\", "/")
-    return next((p for p in BLACKLIST_PATHS if p in low), None)
+    return next((p for p in HARD_BLOCK_PATHS if p in low), None)
+
+
+def warned_by_path(game_dir):
+    low = game_dir.lower().replace("\\", "/")
+    return next((p for p in WARN_PATHS if p in low), None)
 
 
 def ensure(util, appid):
@@ -198,8 +205,11 @@ def ensure(util, appid):
         allow = os.environ.get("DLSSNR_ALLOW", "") in ("1", "true", "yes")
         hit = blocked_by_path(game)
         if hit and not allow:
-            log(f"{appid}: 跳过（路径含 '{hit}'，在线/启动器前缀）")
+            log(f"{appid}: 跳过（路径含 '{hit}'，在线/反作弊平台）")
             return
+        warn = warned_by_path(game)
+        if warn:
+            log(f"{appid}: 注意（路径含 '{warn}' 启动器前缀），继续依赖反作弊检测")
         ac = has_anticheat(game)
         if ac and not allow:
             log(f"{appid}: 跳过（检测到反作弊痕迹 '{ac}'）")

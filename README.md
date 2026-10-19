@@ -149,3 +149,13 @@ DLSSNR_ALLOW=1 <启动>
 ```
 
 Lutris 里可以在游戏条目的环境变量中加 `DLSSNR_ALLOW: "1"`。
+
+### v0.2.2 调整：启动器路径分级
+
+| 级别 | 路径 | 行为 |
+|---|---|---|
+| **硬拦截** | `battlenet` / `battle.net` / `blizzard` / `riot client` / `vanguard` | 跳过（这些平台全线在线 + Warden/Vanguard） |
+| **软警告** | `epic games` / `ea games` / `ubisoft connect` / `gog galaxy` | 只记日志，继续；是否安全交给反作弊检测 |
+| **反作弊检测** | 目录含 `EasyAntiCheat` / `BattlEye` / `BEService` / `Warden` / `Vanguard` / `Ricochet` / `FACEIT` | 跳过 |
+
+这样 Epic/EA/Ubisoft 的**单机游戏**（Alan Wake 2、Control、Death Stranding 等）不会被误杀，而 Fortnite/Rocket League 这类带 EAC/BattlEye 的仍会被拦。
