@@ -37,6 +37,25 @@ if [[ -d "$RT/var" ]]; then
   echo "   已清理"
 fi
 
+say "2c/6 清理 Steam 着色器处理队列"
+if pgrep -x steam >/dev/null 2>&1; then
+  echo "   Steam 正在运行，跳过（关掉 Steam 后重跑）"
+else
+  python3 - "$STEAM/config/config.vdf" <<'PY'
+import io, sys, re, shutil, time
+p = sys.argv[1]
+s = io.open(p, encoding="utf-8", errors="surrogateescape").read()
+shutil.copy2(p, p + ".bak-shaderqueue-" + time.strftime("%Y%m%d-%H%M%S"))
+m = re.search(r'("ProcessingQueue"\s*)"[^"]*"', s)
+if m:
+    s = s[:m.start(1)] + m.group(1) + '""' + s[m.end():]
+    io.open(p, "w", encoding="utf-8", errors="surrogateescape").write(s)
+    print("   已清空 ProcessingQueue")
+else:
+    print("   没有 ProcessingQueue（新配置）")
+PY
+fi
+
 say "3/6 Mesa 扩展检查"
 if command -v vulkaninfo >/dev/null 2>&1; then
   ext=$(vulkaninfo 2>/dev/null | grep -cE "VK_KHR_cooperative_matrix|VK_EXT_shader_float8" || true)
